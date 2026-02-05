@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mini Geometry Dash Clone</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    canvas { background: radial-gradient(circle at top, #1e293b, #020617); }
+    .menu-button { padding: 0.5rem 1rem; margin-top: 10px; background: #22d3ee; color: black; font-weight: bold; border-radius: 0.5rem; cursor: pointer; }
+    .menu-button:hover { background: #0ea5e9; }
+  </style>
+</head>
+<body class="bg-black text-white flex flex-col items-center justify-center min-h-screen">
+  <h1 class="text-4xl font-bold mb-4">Mini Geometry‑Dash‑Style Game</h1>
+  <p class="mb-4 opacity-80">Press SPACE or click to jump • Avoid spikes • Sound ON</p>
+
+  <canvas id="game" width="800" height="300" class="rounded-2xl shadow-xl"></canvas>
+
+  <div class="mt-4 text-lg">Score: <span id="score">0</span> • High Score: <span id="highScore">0</span></div>
+  <div id="menuButtons"></div>
+
+<audio id="bgMusic" loop>
+  <source src="background-music.mp3" type="audio/mpeg">
+</audio>
+<audio id="jumpSound">
+  <source src="jump.mp3" type="audio/mpeg">
+</audio>
+<audio id="scareSound">
+  <source src="scary-sound.mp3" type="audio/mpeg">
+</audio>
+<audio id="gameOverMusic">
+  <source src="gameover-music.mp3" type="audio/mpeg">
+</audio>
+<audio id="drumstickSound">
+  <source src="drumstick.mp3" type="audio/mpeg">
+</audio>
+<audio id="jumpscareImageSound">
+  <source src="jumpscare.mp3" type="audio/mpeg">
+</audio>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const bgMusic = document.getElementById('bgMusic');
+const jumpSound = document.getElementById('jumpSound');
+const scareSound = document.getElementById('scareSound');
+const gameOverMusic = document.getElementById('gameOverMusic');
+const drumstickSound = document.getElementById('drumstickSound');
+const jumpscareImageSound = document.getElementById('jumpscareImageSound');
+
+[bgMusic, jumpSound, scareSound, gameOverMusic, drumstickSound, jumpscareImageSound].forEach(audio => {
+  audio.volume = 1.0;
+  audio.load();
+});
+
+let player = { x: 80, y: 220, size: 25, velY: 0, grounded: true, rotation: 0, type: 'cube', flying: false };
+let gravity = 0.7;
+let jumpPower = -12;
+let obstacles = [];
+
+const levels = [];
+for(let i=1;i<=100;i++){
+  levels.push({
+    name: `Level ${i}`,
+    speed: 6 + i*0.05,
+    spawnRate: Math.max(50, 120 - i),
+    spikeColor: `hsl(${Math.random()*360},100%,50%)`,
+    playerType: i%5===2 ? 'spaceship' : 'cube'
+  });
+}
+
+let currentLevel = 0;
+let levelProgress = 0;
+let frame = 0;
+let score = 0;
+let speed = levels[0].speed;
+let gameOver = false;
+let highScore = Number(localStorage.getItem('gd_highscore')) || 0;
+let gameState = 'menu';
+let multiplayer = false;
+let showThankYou = false;
+let jumpscareActive = false;
+
+document.getElementById('highScore').innerText = highScore;
+
+function spawnObstacle() { 
+  obstacles.push({ x: canvas.width, y: 260, size: 25, color: `hsl(${Math.random()*360},100%,50%)` });
+}
+
+function reset() {
+  player.y = 220; player.velY = 0; player.rotation = 0; player.flying = false;
+  obstacles = [];
+  score = 0; frame = 0; gameOver = false; showThankYou = false;
+  currentLevel = 0; levelProgress = 0; speed = levels[currentLevel].speed; player.type = levels[currentLevel].playerType;
+  jumpscareActive = false; gameState = 'playing';
+  bgMusic.play(); gameOverMusic.pause(); gameOverMusic.currentTime = 0;
+}
+
+function triggerJumpscare() {
+  if (jumpscareActive) return;
+  jumpscareActive = true;
+  scareSound.currentTime = 0; scareSound.play();
+  drumstickSound.currentTime = 0; drumstickSound.play();
+  jumpscareImageSound.currentTime = 0; jumpscareImageSound.play();
+
+  const img = new Image();
+  img.src = 'scary-face.png';
+  img.style.position = 'absolute';
+  img.style.top = canvas.offsetTop + 'px';
+  img.style.left = canvas.offsetLeft + 'px';
+  img.style.width = canvas.width + 'px';
+  img.style.height = canvas.height + 'px';
+  img.style.zIndex = 9999;
+  document.body.appendChild(img);
+
+  setTimeout(() => {
+    document.body.removeChild(img);
+    jumpscareActive = false;
+  }, 1500);
+}
+
+// Update function automatically handles game logic
+function update() {
+  frame++;
+  if(gameState !== 'playing') return;
+
+  // Gravity and player movement
+  if(player.type === 'spaceship' && player.flying) {
+    player.velY = -4;
+  } else {
+    player.velY += gravity;
+  }
+  player.y += player.velY;
+  if(player.y > 220){ player.y = 220; player.velY = 0; player.grounded = true; if(player.type==='cube') player.rotation = 0; }
+  if(player.y < 0) player.y = 0;
+
+  // Rotate cube while jumping
+  if(player.type==='cube' && !player.grounded){ player.rotation += 0.2; }
+
+  // Obstacles
+  if(frame % levels[currentLevel].spawnRate === 0) spawnObstacle();
+  obstacles.forEach(o=> o.x -= speed);
+  obstacles = obstacles.filter(o => o.x + o.size > 0);
+
+  // Collision
+  obstacles.forEach(o => {
+    if(player.x < o.x+o.size && player.x+player.size > o.x && player.y+player.size > o.y-o.size){
+      triggerJumpscare();
+      gameOver = true; gameState = 'gameover'; showThankYou = true;
+      bgMusic.pause(); gameOverMusic.play();
+      if(score > highScore){ highScore = score; localStorage.setItem('gd_highscore', highScore); document.getElementById('highScore').innerText = highScore; }
+    }
+  });
+
+  // Score and level progression
+  score++; levelProgress++;
+  if(levelProgress > 2000){
+    if(currentLevel < levels.length-1){
+      currentLevel++; levelProgress=0; speed = levels[currentLevel].speed; obstacles=[]; player.type=levels[currentLevel].playerType;
+    } else {
+      gameState='finished'; showThankYou=true; bgMusic.pause(); gameOverMusic.pause();
+      setTimeout(()=>{window.close(); window.location.href='https://example.com';},3000);
+    }
+  }
+  document.getElementById('score').innerText = score;
+}
+
+function draw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#0f172a'; ctx.fillRect(0,265,canvas.width,35);
+
+  // Draw player
+  ctx.save(); ctx.translate(player.x+player.size/2, player.y+player.size/2);
+  if(player.type==='spaceship'){
+    ctx.rotate(Math.sin(frame*0.05)*0.2);
+    ctx.shadowColor='#22d3ee'; ctx.shadowBlur=20;
+    ctx.fillStyle='#22d3ee';
+    ctx.beginPath(); ctx.moveTo(0,-player.size/2); ctx.lineTo(-player.size/2,player.size/2); ctx.lineTo(player.size/2,player.size/2); ctx.closePath(); ctx.fill();
+  } else {
+    ctx.rotate(player.rotation);
+    ctx.shadowColor='#22d3ee'; ctx.shadowBlur=20;
+    ctx.fillStyle='#22d3ee';
+    ctx.fillRect(-player.size/2,-player.size/2,player.size,player.size);
+  }
+  ctx.restore();
+
+  // Draw obstacles
+  obstacles.forEach(o=>{
+    ctx.fillStyle=o.color;
+    ctx.beginPath();
+    ctx.moveTo(o.x,o.y); ctx.lineTo(o.x+o.size/2,o.y-o.size); ctx.lineTo(o.x+o.size,o.y); ctx.closePath(); ctx.fill();
+  });
+
+  // UI
+  if(gameState==='gameover'){
+    ctx.fillStyle='white'; ctx.font='28px sans-serif';
+    ctx.fillText(`Level: ${levels[currentLevel].name}`,280,110);
+    ctx.fillText('Game Over – Click to Restart',180,150);
+    if(showThankYou){ ctx.font='30px sans-serif'; ctx.fillStyle='#facc15'; ctx.fillText('Thank you for playing!',250,200); }
+  }
+  if(gameState==='finished'){
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle='#facc15'; ctx.font='40px sans-serif';
+    ctx.fillText('🎉 Congratulations! 🎉',canvas.width*0.2,canvas.height*0.4);
+    ctx.fillText('Shutting down...', canvas.width*0.25, canvas.height*0.5);
+  }
+}
+
+// Handle input
+window.addEventListener('keydown', e => { if(e.code==='Space'){ if(gameState==='menu'||gameState==='gameover') reset(); else {jump(); jumpSound.play();} } });
+canvas.addEventListener('mousedown',()=>{ if(gameState==='menu'||gameState==='gameover') reset(); else {jump(); jumpSound.play();} });
+function jump(){ if(!gameOver){ if(player.type==='spaceship'){player.flying=true;} else if(player.grounded){player.velY=jumpPower; player.grounded=false;} } }
+window.addEventListener('keyup', e => { if(e.code==='Space' && player.type==='spaceship'){player.flying=false;} });
+
+// Multiplayer button placeholder
+const menuDiv=document.getElementById('menuButtons');
+const mpButton=document.createElement('div'); mpButton.className='menu-button'; mpButton.innerText='Multiplayer Mode';
+mpButton.onclick=()=>{ multiplayer=true; alert('Multiplayer mode activated! (feature placeholder)'); };
+menuDiv.appendChild(mpButton);
+
+// Start automatic game loop
+function loop(){ update(); draw(); requestAnimationFrame(loop); }
+loop();
+</script>
+</body>
+</html>

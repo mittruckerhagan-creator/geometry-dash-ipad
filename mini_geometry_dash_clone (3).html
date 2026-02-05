@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mini Geometry Dash Clone</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    canvas { background: radial-gradient(circle at top, #1e293b, #020617); }
+  </style>
+</head>
+<body class="bg-black text-white flex flex-col items-center justify-center min-h-screen">
+  <h1 class="text-4xl font-bold mb-4">Mini Geometry‑Dash‑Style Game</h1>
+  <p class="mb-4 opacity-80">Press SPACE or click to jump • Avoid spikes</p>
+
+  <canvas id="game" width="800" height="300" class="rounded-2xl shadow-xl"></canvas>
+
+  <div class="mt-4 text-lg">Score: <span id="score">0</span></div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+let player = { x: 80, y: 220, size: 25, velY: 0, grounded: true, rotation: 0 };
+let gravity = 0.9;
+let jumpPower = -14;
+
+let obstacles = [];
+
+// LEVEL SYSTEM
+const levels = [
+  { name: 'Starter Run', speed: 5, spawnRate: 120, spikeColor: '#fb7185' },
+  { name: 'Neon Rush', speed: 6.5, spawnRate: 95, spikeColor: '#f472b6' },
+  { name: 'Gravity Trial', speed: 8, spawnRate: 80, spikeColor: '#a78bfa' },
+  { name: 'Hyper Mode', speed: 10, spawnRate: 65, spikeColor: '#22d3ee' }
+];
+
+let currentLevel = 0;
+let levelProgress = 0;
+let frame = 0;
+let score = 0;
+let speed = levels[0].speed;
+let gameOver = false;
+let gameState = 'menu'; // menu | playing | gameover
+
+function spawnObstacle() {
+  obstacles.push({
+    x: canvas.width,
+    y: 240,
+    w: 25,
+    h: 40
+  });
+}
+
+function reset() {
+  player.y = 220;
+  player.velY = 0;
+  obstacles = [];
+  score = 0;
+  frame = 0;
+  gameOver = false;
+  currentLevel = 0;
+  levelProgress = 0;
+  speed = levels[currentLevel].speed;
+  gameState = 'playing';
+}
+
+function update() {
+  if (gameState !== 'playing') return;
+
+  frame++;
+  if (frame % levels[currentLevel].spawnRate === 0) spawnObstacle();
+
+  player.velY += gravity;
+  player.y += player.velY;
+  if (!player.grounded) player.rotation += 0.15;
+
+  if (player.y >= 220) {
+    player.y = 220;
+    player.velY = 0;
+    player.grounded = true;
+  }
+
+  obstacles.forEach(o => o.x -= speed);
+  obstacles = obstacles.filter(o => o.x + o.w > 0);
+
+  obstacles.forEach(o => {
+    if (
+      player.x < o.x + o.w &&
+      player.x + player.size > o.x &&
+      player.y < o.y + o.h &&
+      player.y + player.size > o.y
+    ) {
+      gameOver = true;
+      gameState = 'gameover';
+    }
+  });
+
+  score++;
+  levelProgress++;
+
+  // advance level every 2000 points
+  if (levelProgress > 2000 && currentLevel < levels.length - 1) {
+    currentLevel++;
+    levelProgress = 0;
+    speed = levels[currentLevel].speed;
+    obstacles = [];
+  }
+
+  if (score % 500 === 0) speed += 0.5;
+  document.getElementById('score').innerText = score;
+}
+
+function draw() {
+  if (gameState === 'menu') {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = 'white';
+    ctx.font = '42px sans-serif';
+    ctx.fillText('Mini Geometry Dash', 220, 120);
+    ctx.font = '20px sans-serif';
+    ctx.fillText('Press SPACE or Click to Start', 250, 170);
+    ctx.fillText('Jump over spikes • Survive through levels', 220, 210);
+    return;
+  }
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // scrolling ground
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0,265,canvas.width,35);
+  for (let i = 0; i < canvas.width; i += 40) {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect((i - frame*speed*0.5)%canvas.width,265,20,35);
+  }
+
+  // glowing rotating player cube
+  ctx.save();
+  ctx.translate(player.x + player.size/2, player.y + player.size/2);
+  ctx.rotate(player.rotation);
+  ctx.shadowColor = '#22d3ee';
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = '#22d3ee';
+  ctx.fillRect(-player.size/2, -player.size/2, player.size, player.size);
+  ctx.restore();
+
+  // obstacles (spikes)
+  ctx.fillStyle = levels[currentLevel].spikeColor;
+  obstacles.forEach(o => ctx.fillRect(o.x, o.y, o.w, o.h));
+
+  if (gameOver) {
+    ctx.fillStyle = 'white';
+    ctx.font = '28px sans-serif';
+    ctx.fillText(`Level: ${levels[currentLevel].name}`, 280, 110);
+    ctx.fillText('Game Over – Click to Restart', 180, 150);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    if (gameState === 'menu') reset();
+    else if (gameState === 'gameover') reset();
+    else jump();
+  }
+});
+
+canvas.addEventListener('mousedown', () => {
+  if (gameState === 'menu') reset();
+  else if (gameState === 'gameover') reset();
+  else jump();
+});
+
+function jump() {
+  if (!gameOver && player.grounded) {
+    player.velY = jumpPower;
+    player.grounded = false;
+  }
+}
+
+// ---------------- TESTS ----------------
+function runTests() {
+  console.assert(levels.length >= 4, 'Should have multiple levels');
+
+  const oldCount = obstacles.length;
+  spawnObstacle();
+  console.assert(obstacles.length === oldCount + 1, 'spawnObstacle should add obstacle');
+
+  reset();
+  console.assert(gameState === 'playing', 'reset should start playing');
+
+  player.grounded = true;
+  jump();
+  console.assert(player.velY === jumpPower, 'jump should apply velocity');
+
+  gameState = 'menu';
+}
+
+runTests();
+loop();
+</script>
+</body>
+</html>

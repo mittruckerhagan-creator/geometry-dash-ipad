@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Mini Geometry Dash - Mobile & Chromebook Multiplayer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<link rel="manifest" href="manifest.json">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+html, body {margin:0;padding:0;overflow:hidden;background:#1e293b;}
+canvas{display:block;margin:auto;border:2px solid #facc15;background:#1e293b;}
+#hud{position:absolute;top:10px;left:50%;transform:translateX(-50%);color:white;font-size:1.5rem;z-index:1000;}
+.menu-button{padding:1rem 2rem;margin:10px;background:#22d3ee;color:black;font-weight:bold;border-radius:.5rem;cursor:pointer;font-size:1.2rem;}
+.menu-button:hover{background:#0ea5e9}
+#menu{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:black;z-index:9999;text-align:center}
+#gameOverScreen{position:absolute;inset:0;background:rgba(0,0,0,0.9);display:flex;flex-direction:column;align-items:center;justify-content:center;color:white;font-size:3rem;display:none;z-index:10000}
+#gameOverScreen button{margin-top:20px;padding:1rem 2rem;background:#facc15;color:black;font-weight:bold;border-radius:.5rem;cursor:pointer;font-size:1.5rem}
+#gameOverScreen button:hover{background:#eab308}
+</style>
+</head>
+<body>
+<div id="menu">
+<h1 style="color:#facc15;font-size:3rem;margin-bottom:20px;">Mini Geometry Dash</h1>
+<button class="menu-button" id="startBtn">Start Solo</button>
+<button class="menu-button" id="multiBtn">Start Multiplayer</button>
+<button class="menu-button" id="skinBtn">Change Skin</button>
+<div id="skinMenu" style="display:none;margin-top:20px;">
+<p style="color:white;">Select a Skin:</p>
+<button class="menu-button skinOption" data-color="red">Red</button>
+<button class="menu-button skinOption" data-color="blue">Blue</button>
+<button class="menu-button skinOption" data-color="green">Green</button>
+<button class="menu-button skinOption" data-color="yellow">Yellow</button>
+<button class="menu-button skinOption" data-color="spaceship">Spaceship</button>
+</div>
+<div id="multiPanel" style="display:none;margin-top:20px;">
+<p style="color:white;">Enter Invite Code:</p>
+<input id="codeInput" placeholder="Code" style="padding:.5rem;border-radius:.4rem;color:black;" />
+<button class="menu-button" id="joinBtn">Join / Host</button>
+</div>
+</div>
+<canvas id="game"></canvas>
+<div id="hud">Score: <span id="score">0</span> • High Score: <span id="highScore">0</span> • Spaceship Time: <span id="timer">0</span>s</div>
+<div id="gameOverScreen">GAME OVER<br><button id="restartBtn">Restart</button><button id="quitBtn">Quit</button></div>
+<script>
+(function(){
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const menu = document.getElementById('menu');
+const startBtn = document.getElementById('startBtn');
+const multiBtn = document.getElementById('multiBtn');
+const skinBtn = document.getElementById('skinBtn');
+const skinMenu = document.getElementById('skinMenu');
+const skinOptions = document.querySelectorAll('.skinOption');
+const multiPanel = document.getElementById('multiPanel');
+const joinBtn = document.getElementById('joinBtn');
+const codeInput = document.getElementById('codeInput');
+const gameOverScreen = document.getElementById('gameOverScreen');
+const restartBtn = document.getElementById('restartBtn');
+const quitBtn = document.getElementById('quitBtn');
+const scoreSpan = document.getElementById('score');
+const highScoreSpan = document.getElementById('highScore');
+const timerSpan = document.getElementById('timer');
+
+let playerColor = 'red';
+let isSpaceship = false;
+let spaceshipTime = 0;
+let highScore = 0;
+let currentLevel = 1;
+let timerInterval;
+let loopId;
+let gameOver = false;
+let frame = 0;
+let score = 0;
+let lastTime = performance.now();
+let multiplayer = false;
+let channel = null;
+let otherPlayer = {x:80, y:0, size:25, vy:0};
+
+function resizeCanvas(){
+ canvas.width = window.innerWidth * 0.95;
+ canvas.height = window.innerHeight * 0.4;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+const groundY = canvas.height - 40;
+let player = {x:80, y:groundY-25, size:25, vy:0, rotation:0};
+let obstacles = [];
+const gravity = 0.7;
+const jumpPower = -12;
+
+function spawnSpike(){
+ obstacles.push({x:canvas.width, y:groundY-25, size:25});
+}
+
+function jump(){
+ if(player.y>=groundY-player.size){
+  player.vy = jumpPower;
+  player.rotation = 0.3;
+  if(multiplayer && channel) channel.postMessage({type:'jump'});
+ }
+}
+
+function remoteJump(){
+ if(otherPlayer.y>=groundY-otherPlayer.size) otherPlayer.vy = jumpPower;
+}
+
+canvas.addEventListener('touchstart', jump);
+window.addEventListener('keydown', e=>{if(e.code==='Space') jump();});
+
+startBtn.onclick=()=>{multiplayer=false;resetGame(); menu.style.display='none';};
+multiBtn.onclick=()=>{multiPanel.style.display='block';};
+joinBtn.onclick=()=>{
+ const code = codeInput.value.trim();
+ if(!code) return alert('Enter invite code');
+ channel = new BroadcastChannel('gd-'+code);
+ multiplayer=true;
+ resetGame();
+ channel.onmessage=e=>{if(e.data.type==='jump') remoteJump();};
+ menu.style.display='none';
+};
+
+skinBtn.onclick=()=>{skinMenu.style.display = skinMenu.style.display==='none'?'block':'none';};
+skinOptions.forEach(btn=>{btn.onclick=()=>{
+ if(btn.dataset.color==='spaceship'){
+  isSpaceship=true;
+  playerColor='gray';
+  spaceshipTime=600;
+  timerSpan.textContent=spaceshipTime;
+  if(currentLevel===2) alert('Spaceship unlocked at Level 2!');
+ } else {
+  isSpaceship=false;
+  playerColor=btn.dataset.color;
+  spaceshipTime=0;
+  timerSpan.textContent=spaceshipTime;
+ }
+ skinMenu.style.display='none';
+}});
+
+restartBtn.onclick=resetGame;
+quitBtn.onclick=()=>window.location.reload();
+
+function resetGame(){
+ player = {x:80, y:groundY-25, size:25, vy:0, rotation:0};
+ obstacles=[];
+ frame=0; score=0; gameOver=false; currentLevel=1;
+ scoreSpan.textContent = score;
+ clearInterval(timerInterval);
+ spaceshipTime=isSpaceship?600:0;
+ timerSpan.textContent=spaceshipTime;
+ gameOverScreen.style.display='none';
+ lastTime=performance.now();
+ loopId=requestAnimationFrame(loop);
+ if(isSpaceship){
+  clearInterval(timerInterval);
+  timerInterval=setInterval(()=>{if(spaceshipTime>0){spaceshipTime--; timerSpan.textContent=spaceshipTime;}},1000);
+ }
+ otherPlayer={x:80,y:groundY-25,size:25,vy:0};
+}
+
+function update(delta){
+ if(gameOver) return;
+ player.vy += gravity*delta; player.y+=player.vy*delta;
+ if(player.y>groundY-player.size) player.y=groundY-player.size;
+ player.rotation = player.y<groundY-player.size?player.rotation+0.3*delta:0;
+ if(frame%90===0) spawnSpike();
+ obstacles.forEach(o=>o.x-=6*delta);
+ obstacles=obstacles.filter(o=>o.x+o.size>0);
+ obstacles.forEach(o=>{if(player.x+player.size>o.x && player.x<o.x+o.size && player.y+player.size>o.y && player.y<o.y+o.size){gameOver=true; gameOverScreen.style.display='flex'; if(score>highScore){highScore=score; highScoreSpan.textContent=highScore;}}});
+ if(multiplayer){otherPlayer.vy+=gravity*delta; otherPlayer.y+=otherPlayer.vy*delta;if(otherPlayer.y>groundY-otherPlayer.size)otherPlayer.y=groundY-otherPlayer.size;}
+ score+=delta; scoreSpan.textContent=Math.floor(score);
+ if(score>=500 && currentLevel===1){currentLevel=2; alert('Level 2 reached! Spaceship available.');}
+ frame++;
+}
+
+function draw(){
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+ ctx.fillStyle='#1e293b'; ctx.fillRect(0,0,canvas.width,canvas.height); // Ensure background
+ ctx.strokeStyle='#facc15'; ctx.beginPath(); ctx.moveTo(0,groundY+0.5); ctx.lineTo(canvas.width,groundY+0.5); ctx.stroke();
+ ctx.save(); ctx.translate(player.x+player.size/2,player.y+player.size/2); ctx.rotate(player.rotation);
+ if(isSpaceship){ctx.beginPath();ctx.moveTo(-player.size/2,player.size/2);ctx.lineTo(player.size/2,0);ctx.lineTo(-player.size/2,-player.size/2);ctx.closePath();ctx.fillStyle='gray';ctx.fill();}
+ else{ctx.fillStyle=playerColor;ctx.fillRect(-player.size/2,-player.size/2,player.size,player.size);}
+ ctx.restore();
+ if(multiplayer){ctx.fillStyle='cyan';ctx.fillRect(otherPlayer.x,otherPlayer.y,otherPlayer.size,otherPlayer.size);}
+ obstacles.forEach(o=>{ctx.fillStyle='hsl('+(frame*5%360)+',100%,50%)';ctx.beginPath();ctx.moveTo(o.x,o.y+o.size);ctx.lineTo(o.x+o.size/2,o.y);ctx.lineTo(o.x+o.size,o.y+o.size);ctx.closePath();ctx.fill();});
+}
+
+function loop(currentTime){
+ const delta=(currentTime-lastTime)/16.666; lastTime=currentTime;
+ update(delta); draw(); loopId=requestAnimationFrame(loop);
+}
+
+})();
+</script>
+</body>
+</html>

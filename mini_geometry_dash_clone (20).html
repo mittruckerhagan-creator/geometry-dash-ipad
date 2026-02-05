@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Mini Geometry Dash Clone</title>
+<link rel="manifest" href="manifest.json">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+canvas{background:#1e293b;display:block;margin:auto;border:2px solid #facc15}
+.menu-button{padding:.5rem 1rem;margin-top:10px;background:#22d3ee;color:black;font-weight:bold;border-radius:.5rem;cursor:pointer}
+.menu-button:hover{background:#0ea5e9}
+#menu{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:black;z-index:9999}
+input{padding:.5rem;border-radius:.4rem;color:black}
+#gameOverScreen{position:absolute;inset:0;background:rgba(0,0,0,0.9);display:flex;flex-direction:column;align-items:center;justify-content:center;color:white;font-size:3rem;display:none;z-index:10000}
+#restartBtn, #quitBtn{margin-top:20px;padding:.5rem 1rem;background:#facc15;color:black;font-weight:bold;border-radius:.5rem;cursor:pointer}
+#restartBtn:hover, #quitBtn:hover{background:#eab308}
+</style>
+</head>
+<body class="bg-black text-white flex flex-col items-center justify-center min-h-screen">
+
+<div id="menu">
+<h1 class="text-4xl mb-6 text-yellow-400">Mini Geometry Dash</h1>
+<button class="menu-button" id="soloBtn">Solo</button>
+<button class="menu-button" id="multiBtn">Multiplayer</button>
+<div id="multiPanel" class="hidden mt-4 flex flex-col items-center gap-2">
+<input id="codeInput" placeholder="Invite Code" />
+<button class="menu-button" id="joinBtn">Join / Host</button>
+</div>
+</div>
+
+<canvas id="game" width="800" height="300"></canvas>
+<div class="mt-4">Score: <span id="score">0</span> • High Score: <span id="highScore">0</span></div>
+<div id="gameOverScreen">GAME OVER<br><button id="restartBtn">Restart</button><button id="quitBtn">Quit</button></div>
+
+<script>
+const canvas=document.getElementById('game');
+const ctx=canvas.getContext('2d');
+
+const menu=document.getElementById('menu');
+const soloBtn=document.getElementById('soloBtn');
+const multiBtn=document.getElementById('multiBtn');
+const joinBtn=document.getElementById('joinBtn');
+const panel=document.getElementById('multiPanel');
+const codeInput=document.getElementById('codeInput');
+const gameOverScreen=document.getElementById('gameOverScreen');
+const restartBtn=document.getElementById('restartBtn');
+const quitBtn=document.getElementById('quitBtn');
+const highScoreSpan=document.getElementById('highScore');
+
+let channel=null;
+let multiplayer=false;
+let loopId=null;
+let highScore=0;
+
+multiBtn.onclick=()=>panel.classList.toggle('hidden');
+joinBtn.onclick=()=>{
+ const code=codeInput.value.trim();
+ if(!code)return alert('Enter invite code');
+ channel=new BroadcastChannel('gd-'+code);
+ multiplayer=true;
+ startGame();
+ channel.onmessage=e=>{if(e.data.type==='jump')remoteJump();};
+};
+soloBtn.onclick=()=>startGame();
+restartBtn.onclick=()=>{resetGame();};
+quitBtn.onclick=()=>{window.location.reload();}; // Quit button reloads to menu
+
+function startGame(){
+ menu.style.display='none';
+ gameOverScreen.style.display='none';
+ if(loopId) cancelAnimationFrame(loopId);
+ loopId=requestAnimationFrame(loop);
+}
+
+const groundY = canvas.height - 40;
+let player={x:80,y:groundY-25,size:25,vy:0,rotation:0};
+let other={x:80,y:groundY-25,size:25,vy:0};
+let gravity=.7;
+let jumpPower=-12;
+let obstacles=[];
+let frame=0;
+let score=0;
+let gameOver=false;
+let fade=0;
+
+function spawnSpike(){
+ const size = 25;
+ obstacles.push({x:canvas.width,y:groundY-size,size});
+}
+
+function jump(){
+ if(player.y>=groundY-player.size){
+  player.vy=jumpPower;
+  player.rotation = 0.3; // start spinning only during jump
+  if(multiplayer)channel.postMessage({type:'jump'});
+ }
+}
+function remoteJump(){if(other.y>=groundY-other.size)other.vy=jumpPower;}
+
+addEventListener('keydown',e=>{if(e.code==='Space')jump()});
+addEventListener('click',jump);
+
+function resetGame(){
+ if(score>highScore) highScore=score;
+ highScoreSpan.textContent=highScore;
+ player.y=groundY-25; player.vy=0; player.rotation=0;
+ other.y=groundY-25; other.vy=0;
+ obstacles=[];
+ frame=0;
+ score=0;
+ gameOver=false;
+ fade=0;
+ document.getElementById('score').textContent=score;
+ if(loopId) cancelAnimationFrame(loopId);
+ startGame();
+}
+
+function update(){
+ if(gameOver){fade=Math.min(1,fade+0.02);return;}
+ player.vy+=gravity; player.y+=player.vy; if(player.y>groundY-player.size)player.y=groundY-player.size;
+ if(player.y<groundY-player.size){player.rotation+=0.3;} else {player.rotation=0;}
+ other.vy+=gravity; other.y+=other.vy; if(other.y>groundY-other.size)other.y=groundY-other.size;
+ if(frame%90===0)spawnSpike();
+ obstacles.forEach(o=>o.x-=6);
+ obstacles=obstacles.filter(o=>o.x+o.size>0);
+ obstacles.forEach(o=>{
+  const hitX = player.x+player.size>o.x && player.x<o.x+o.size;
+  const hitY = player.y + player.size > o.y && player.y < o.y + o.size;
+  if(hitX && hitY){gameOver=true;fade=0;gameOverScreen.style.display='flex'; if(score>highScore){highScore=score; highScoreSpan.textContent=highScore;} }
+ });
+ score++; document.getElementById('score').textContent=score;
+ frame++;
+}
+
+function draw(){
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+ ctx.strokeStyle='#facc15'; ctx.beginPath(); ctx.moveTo(0,groundY+0.5); ctx.lineTo(canvas.width,groundY+0.5); ctx.stroke();
+ ctx.save();
+ ctx.translate(player.x+player.size/2, player.y+player.size/2);
+ ctx.rotate(player.rotation);
+ ctx.fillStyle='red';
+ ctx.fillRect(-player.size/2,-player.size/2,player.size,player.size);
+ ctx.restore();
+ if(multiplayer){ctx.fillStyle='cyan';ctx.fillRect(other.x,other.y,other.size,other.size);}
+ obstacles.forEach(o=>{
+  ctx.fillStyle='hsl('+frame*5%360+',100%,50%)';
+  ctx.beginPath(); ctx.moveTo(o.x,o.y+o.size); ctx.lineTo(o.x+o.size/2,o.y); ctx.lineTo(o.x+o.size,o.y+o.size); ctx.closePath(); ctx.fill();
+ });
+ if(fade>0){ctx.fillStyle='rgba(0,0,0,'+fade+')'; ctx.fillRect(0,0,canvas.width,canvas.height);}
+}
+
+function loop(){
+ update(); draw();
+ loopId=requestAnimationFrame(loop);
+}
+
+</script>
+</body>
+</html>

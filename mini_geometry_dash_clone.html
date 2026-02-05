@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mini Geometry Dash Clone</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    canvas { background: linear-gradient(#0f172a, #020617); }
+  </style>
+</head>
+<body class="bg-black text-white flex flex-col items-center justify-center min-h-screen">
+  <h1 class="text-4xl font-bold mb-4">Mini Geometry‑Dash‑Style Game</h1>
+  <p class="mb-4 opacity-80">Press SPACE or click to jump • Avoid spikes</p>
+
+  <canvas id="game" width="800" height="300" class="rounded-2xl shadow-xl"></canvas>
+
+  <div class="mt-4 text-lg">Score: <span id="score">0</span></div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+let player = { x: 80, y: 220, size: 25, velY: 0, grounded: true };
+let gravity = 0.9;
+let jumpPower = -14;
+
+let obstacles = [];
+let frame = 0;
+let score = 0;
+let speed = 5;
+let gameOver = false;
+
+function spawnObstacle() {
+  obstacles.push({
+    x: canvas.width,
+    y: 240,
+    w: 25,
+    h: 40
+  });
+}
+
+function reset() {
+  player.y = 220;
+  player.velY = 0;
+  obstacles = [];
+  score = 0;
+  speed = 5;
+  frame = 0;
+  gameOver = false;
+}
+
+function update() {
+  if (gameOver) return;
+
+  frame++;
+  if (frame % 120 === 0) spawnObstacle();
+
+  player.velY += gravity;
+  player.y += player.velY;
+
+  if (player.y >= 220) {
+    player.y = 220;
+    player.velY = 0;
+    player.grounded = true;
+  }
+
+  obstacles.forEach(o => o.x -= speed);
+  obstacles = obstacles.filter(o => o.x + o.w > 0);
+
+  obstacles.forEach(o => {
+    if (
+      player.x < o.x + o.w &&
+      player.x + player.size > o.x &&
+      player.y < o.y + o.h &&
+      player.y + player.size > o.y
+    ) {
+      gameOver = true;
+    }
+  });
+
+  score++;
+  if (score % 500 === 0) speed += 0.5;
+  document.getElementById('score').innerText = score;
+}
+
+function draw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // ground
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(0,265,canvas.width,35);
+
+  // player
+  ctx.fillStyle = '#22d3ee';
+  ctx.fillRect(player.x, player.y, player.size, player.size);
+
+  // obstacles (spikes)
+  ctx.fillStyle = '#f43f5e';
+  obstacles.forEach(o => ctx.fillRect(o.x, o.y, o.w, o.h));
+
+  if (gameOver) {
+    ctx.fillStyle = 'white';
+    ctx.font = '32px sans-serif';
+    ctx.fillText('Game Over – Click to Restart', 180, 150);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') jump();
+});
+
+canvas.addEventListener('mousedown', () => {
+  if (gameOver) reset();
+  else jump();
+});
+
+function jump() {
+  if (!gameOver && player.grounded) {
+    player.velY = jumpPower;
+    player.grounded = false;
+  }
+}
+
+loop();
+</script>
+</body>
+</html>
